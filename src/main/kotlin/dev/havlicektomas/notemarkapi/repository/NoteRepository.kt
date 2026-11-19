@@ -10,10 +10,12 @@ class NoteRepository {
     // Keyed by note id.
     private val notes = ConcurrentHashMap<String, Note>()
 
-    fun save(note: Note): Note {
-        notes[note.id] = note
-        return note
-    }
+    /**
+     * Atomically computes the new value for [id] from the current one (null if absent).
+     * Returning null from [remapping] removes the entry.
+     */
+    fun compute(id: String, remapping: (Note?) -> Note?): Note? =
+        notes.compute(id) { _, existing -> remapping(existing) }
 
     fun findById(id: String): Note? = notes[id]
 
@@ -21,9 +23,5 @@ class NoteRepository {
         notes.values
             .filter { it.ownerEmail == ownerEmail }
             // Stable ordering: most recently edited first.
-            .sortedByDescending { it.lastEditedAt }
-
-    fun delete(id: String) {
-        notes.remove(id)
-    }
+            .sortedByDescending { it.lastEditedAtInstant }
 }

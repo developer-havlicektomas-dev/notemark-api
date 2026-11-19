@@ -30,6 +30,8 @@ class SecurityConfig(
                     "/api/auth/register",
                     "/api/auth/login",
                     "/api/auth/refresh",
+                    // Spring forwards errors here; without this every 4xx/5xx became a 401.
+                    "/error",
                 ).permitAll()
                 it.anyRequest().authenticated()
             }
