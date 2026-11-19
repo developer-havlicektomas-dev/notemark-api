@@ -15,9 +15,6 @@ class RefreshTokenRepository {
         return token
     }
 
-    fun find(token: String): RefreshToken? = tokens[token]
-
-    fun delete(token: String) {
-        tokens.remove(token)
-    }
+    /** Atomically removes and returns the token, so each one can be used only once. */
+    fun consume(token: String): RefreshToken? = tokens.remove(token)
 }

@@ -8,3 +8,6 @@ class UnauthorizedException(message: String) : RuntimeException(message)
 
 /** Note does not exist or is not owned by the caller -> 404. */
 class NotFoundException(message: String) : RuntimeException(message)
+
+/** Invalid input that passed bean validation (bad UUID, timestamp, paging) -> 400. */
+class BadRequestException(message: String) : RuntimeException(message)

@@ -23,24 +23,30 @@ class AuthService(
     private val passwordEncoder: PasswordEncoder,
 ) {
 
+    // Serializes the username check + insert so two concurrent registrations
+    // can't both claim the same username (email uniqueness is atomic on its own).
+    private val registerLock = Any()
+
     fun register(request: RegisterRequest) {
-        if (userRepository.existsByEmail(request.email)) {
-            throw ConflictException("Email already registered")
+        val email = normalizeEmail(request.email)
+        val username = request.username.trim()
+        val passwordHash = requireNotNull(passwordEncoder.encode(request.password))
+        synchronized(registerLock) {
+            if (userRepository.findByEmail(email) != null) {
+                throw ConflictException("Email already registered")
+            }
+            if (userRepository.existsByUsername(username)) {
+                throw ConflictException("Username already taken")
+            }
+            val user = User(username = username, email = email, passwordHash = passwordHash)
+            if (!userRepository.saveIfAbsent(user)) {
+                throw ConflictException("Email already registered")
+            }
         }
-        if (userRepository.existsByUsername(request.username)) {
-            throw ConflictException("Username already taken")
-        }
-        userRepository.save(
-            User(
-                username = request.username,
-                email = request.email,
-                passwordHash = requireNotNull(passwordEncoder.encode(request.password)),
-            ),
-        )
     }
 
     fun login(request: LoginRequest, debug: Boolean): LoginResponse {
-        val user = userRepository.findByEmail(request.email)
+        val user = userRepository.findByEmail(normalizeEmail(request.email))
             ?: throw UnauthorizedException("Invalid email or password")
         if (!passwordEncoder.matches(request.password, user.passwordHash)) {
             throw UnauthorizedException("Invalid email or password")
@@ -55,14 +61,16 @@ class AuthService(
     }
 
     fun refresh(refreshToken: String, debug: Boolean): RefreshResponse {
-        val stored = refreshTokenRepository.find(refreshToken)
+        // Rotate: consuming removes the old token atomically, so two concurrent
+        // refreshes with the same token can't both succeed.
+        val stored = refreshTokenRepository.consume(refreshToken)
             ?: throw UnauthorizedException("Invalid refresh token")
         if (stored.expiresAt.isBefore(Instant.now())) {
-            refreshTokenRepository.delete(refreshToken)
             throw UnauthorizedException("Refresh token expired")
         }
-        // Rotate: the old refresh token becomes invalid immediately.
-        refreshTokenRepository.delete(refreshToken)
+        if (userRepository.findByEmail(stored.email) == null) {
+            throw UnauthorizedException("Invalid refresh token")
+        }
         val newAccessToken = jwtService.generateAccessToken(stored.email, debug)
         val newRefreshToken = issueRefreshToken(stored.email)
         return RefreshResponse(
@@ -70,6 +78,8 @@ class AuthService(
             refreshToken = newRefreshToken,
         )
     }
+
+    private fun normalizeEmail(email: String) = email.trim().lowercase()
 
     private fun issueRefreshToken(email: String): String {
         val token = jwtService.generateRefreshToken()
